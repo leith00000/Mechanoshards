@@ -1,0 +1,235 @@
+import serial, time, random, threading
+from Adafruit_PWM_Servo_Driver import PWM
+from threading import Thread
+
+##arduino serial connection
+ser = serial.Serial('/dev/ttyACM0',38400)
+
+##motor control setup
+pwm = PWM(0x40, debug=True)
+pwm.setPWMFreq(50)
+fullStroke = 14
+##mcSpeed[8]
+
+##control arrays
+ledControl=['0','0','0','0']
+linAcDist =[[0,0],[0,0],[0,0],[0,0]]
+
+##function to convert computed values to PWM
+def pwmConvert(inputSpeed):
+    ##recheck these values against the real world
+    mOut=(210,330)
+    mIn =(350,450)
+    deadBand = 340
+    if(inputSpeed==0):
+        return deadBand
+    elif(inputSpeed>0):
+        return mIn[0]+((inputSpeed*(mIn[1]-mIn[0]))/100)
+    elif(inputSpeed<0):
+        return mOut[1]-((inputSpeed*(mOut[1]-mOut[0]))/-100)
+        
+##function to send LED control to serial based on motor control behavior. linac==linear actuator        
+def ledState(machNumber,linac1,linac2):
+    global ledControl
+    if(linac1==0 and linac2==0):
+        ledControl[machNumber]='0'
+    elif(linac1>0 and linac2==0):
+        ledControl[machNumber]='1'
+    elif(linac1<0 and linac2==0):
+        ledControl[machNumber]='2'
+    elif(linac1==0 and linac2>0):
+        ledControl[machNumber]='3'
+    elif(linac1==0 and linac2<0):
+        ledControl[machNumber]='4'
+    elif(linac1>0 and linac2>0):
+        ledControl[machNumber]='5'
+    elif(linac1<0 and linac2<0):
+        ledControl[machNumber]='6'
+    elif(linac1>0 and linac2<0):
+        ledControl[machNumber]='7'
+    elif(linac1<0 and linac2>0):
+        ledControl[machNumber]='8'
+        
+def distance(inputSpeed,time):
+    return (((inputSpeed/100.0)*time)/14)
+    
+def machine(machNum,linac1,linac2,):
+    ##startTime=time.time()
+    ##print  _time
+    ##while(startTime+_time<time.time()):
+    ledState(machNum,linac1,linac2)
+    pwm.setPWM(machNum*2,0,pwmConvert(linac1))
+    pwm.setPWM((machNum*2)+1,0,pwmConvert(linac2))
+    ser.write('@'+''.join(ledControl)+'\n')
+    ##print _time
+##    linAcDist[machNum][0]+=distance(linac1,_time)
+##    linAcDist[machNum][1]+=distance(linac2,_time)
+##
+##    if(linAcDist[machNum][0]<0):
+##        linAcDist[machNum][0]=0
+##    if(linAcDist[machNum][1]<0):
+##        linAcDist[machNum][1]=0
+##    if(linAcDist[machNum][0]>1):
+##        linAcDist[machNum][0]=1
+##    if(linAcDist[machNum][1]>1):
+##        linAcDist[machNum][1]=1
+ ##delete for show
+##    print machNum*2,0,pwmConvert(linac1)
+##    print (machNum*2)+1,0,pwmConvert(linac2)
+##    print str(ledControl)
+##    print linAcDist[machNum],"linAcDist"
+
+###########various functions describing machine behaviors###############
+
+def sleep(howLong):
+    for i in range(0,4):
+        machine(i,0,0)
+    time.sleep(howLong)
+    
+def home():
+    global ledControl
+    ledControl = ['0','0','0','0']
+    for i in range(0,4):
+        machine(i,-100,-100)
+    ser.write('@'+''.join(ledControl)+'\n')
+    print '@'+''.join(ledControl)+'\n'
+    time.sleep(fullStroke)
+    ledControl = ['0','0','0','0']
+    ser.write('@'+''.join(ledControl)+'\n')
+    print '@'+''.join(ledControl)+'\n'
+    time.sleep(random.randint(5,30))
+    
+def circleDance():
+    for i in range(0,4):
+        machine(i,100,0)
+        time.sleep(fullStroke/4)
+        if(i<3):machine(i+1,100,0)
+        machine(i,100,100)
+        time.sleep(fullStroke/4)
+        if(i<3):machine(i+1,100,100)
+    for i in range (0,4):
+        machine(i,-100,0)
+        time.sleep(fullStroke/4)
+        if(i<3):machine(i+1,-100,0)
+        else:machine(3,-100,0)
+        machine(i,-100,-100)
+        time.sleep(fullStroke/4)
+        if(i<3):machine(i+1,-100,-100)
+        else:machine(3,-100,-100)
+    home()
+    
+def circleDance2():
+    for i in range (0,4):
+        machine(i,100,100)
+    time.sleep(fullStroke/4)
+    for i in range(0,4):
+        machine(i,0,0)
+    for i in range(0,4):
+        machine(i,100,100)
+        time.sleep(fullStroke/4)
+    for i in range(0,4):
+        machine(i,-100,-100)
+        time.sleep(fullStroke/4)
+    home()
+    
+def linearDance():
+    for i in range(0,2):
+        machine(i,100,100)
+        machine(i+2,100,100)
+        time.sleep(fullStroke/2)
+    for i in range(0,2):
+        machine(i,-100,-100)
+        machine(i+2,-100,-100)
+        time.sleep(fullStroke/2)
+    time.sleep(fullStroke/2)
+    
+def inAndOut():
+    for i in range(0,4):
+        machine(i,100,100)
+    time.sleep(fullStroke)
+    for i in range(0,4):
+        machine(i,-100,-100)
+    time.sleep(fullStroke)
+    
+def fastRand(timeRound):
+    for j in range(0,timeRound):
+        for i in range(0,4):
+            linac1=random.randint(-100,100)
+            linac2=random.randint(-100,100)
+            machine(i,linac1,linac2)
+        time.sleep(random.randint(5,10))
+    home()
+    
+def timeOut(timeIn,machnum):
+    chooser=random.randint(0,1)
+    if(chooser==1):
+        machine(machnum,0,random.randint(20,50))
+    else:machine(machnum,random.randint(20,50),0)
+    time.sleep(timeIn)
+    machine(machnum,0,0)
+    time.sleep(timeIn*4)
+    if(chooser==1):
+        machine(machnum,random.randint(20,50),0)
+    else:machine(machnum,0,random.randint(20,50))
+    time.sleep(timeIn)
+    machine(machnum,0,0)
+    time.sleep(timeIn*4)
+    machine(machnum,-100,-100)
+    time.sleep(fullStroke)
+    machine(machnum,0,0)
+    time.sleep(timeIn*4)
+    print machnum,"return","\n"
+    
+######multithread behavior###########
+def creeper():
+    t0=Thread(target=timeOut, args=(random.randint(0,14),0))
+    t1=Thread(target=timeOut, args=(random.randint(0,14),1))
+    t2=Thread(target=timeOut, args=(random.randint(0,14),2))
+    t3=Thread(target=timeOut, args=(random.randint(0,14),3))
+##
+ledControl##t0.isAlive(),t1.isAlive(),t2.isAlive(),t3.isAlive(),'\n'
+  for i in range(1000):
+print
+if(t0.isAlive()==False):
+    t0=Thread(target=timeOut, args=(random.randint(7,14),0))
+    t0.start()
+if(t1.isAlive()==False):
+    t1=Thread(target=timeOut, args=(random.randint(7,14),1))
+        t1.start()
+    if(t2.isAlive()==False):
+        t2=Thread(target=timeOut, args=(random.randint(7,14),2))
+        t2.start()
+    if(t3.isAlive()==False):
+        t3=Thread(target=timeOut, args=(random.randint(7,14),3))
+        t3.start()
+    t0.join()
+    t1.join()
+    t2.join()
+    t3.join()
+    
+    
+############## the show loop ##############
+while(1):
+    home()
+    print "creeper"
+   creeper()
+    print "line dance"
+    for i in range(0,2):
+    inAndOut()
+    linearDance()
+    sleep(random.randint(0,5))
+    circleDance()
+    sleep(random.randint(0,5))
+    circleDance2()
+    sleep(random.randint(0,5))
+    fastRand(4)
+    home()
+    print "creeper"
+    creeper()
+    print "cdance"
+    circleDance()
+    sleep(random.randint(0,5))
+    print "cdance2"
+    circleDance2()
+    sleep(random.randint(0,5))
+    print "rapidrandom"
